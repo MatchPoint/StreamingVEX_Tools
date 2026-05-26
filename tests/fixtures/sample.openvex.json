@@ -1,0 +1,15 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://example.invalid/streamingvex/fixtures/sample",
+  "author": "StreamingVEX Fixture Generator",
+  "timestamp": "2026-05-23T14:02:09Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": "CVE-2049-STREAM",
+      "timestamp": "2026-05-23T14:02:09Z",
+      "products": ["pkg:generic/acme-fw-mgr@42.8.11?type=json"],
+      "status": "under_investigation"
+    }
+  ]
+}

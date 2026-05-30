@@ -62,11 +62,34 @@ def test_push_envelope_posts_to_supplier_api() -> None:
     assert call[1]["headers"]["X-Supplier-API-Key"] == "svx_test"
 
 
-def test_example_config_is_valid_json() -> None:
+def test_example_config_loads_with_comments() -> None:
+    from streamingvex_tools.pusher.config_loader import load_pusher_config
+
     path = Path(__file__).resolve().parents[1] / "examples" / "pusher.config.example.json"
-    cfg = json.loads(path.read_text(encoding="utf-8"))
+    cfg = load_pusher_config(path)
     assert "base_url" in cfg
     assert "supplier_slug" in cfg
+    assert "product_purl" not in cfg
+    assert "product_cpe" not in cfg
+
+
+def test_load_config_strips_line_comments(tmp_path: Path) -> None:
+    from streamingvex_tools.pusher.config_loader import load_pusher_config
+
+    path = tmp_path / "pusher.config.json"
+    path.write_text(
+        """{
+  // comment
+  "base_url": "http://127.0.0.1:8000",
+  "supplier_slug": "test",
+  "api_key": "svx_x",
+  "product_name": "p",
+  "product_version": "1"
+}""",
+        encoding="utf-8",
+    )
+    cfg = load_pusher_config(path)
+    assert cfg["base_url"] == "http://127.0.0.1:8000"
 
 
 def test_cli_help_subprocess() -> None:
@@ -78,3 +101,17 @@ def test_cli_help_subprocess() -> None:
     )
     assert result.returncode == 0
     assert "VEX Pusher" in result.stdout
+    assert "--validate" in result.stdout
+
+
+def test_validate_openvex_fixture() -> None:
+    from streamingvex_tools.pusher.validate import validate_vex_for_catalog
+
+    payload = json.loads(
+        (Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "sample.openvex.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    result = validate_vex_for_catalog(payload)
+    assert result.ok is True
+    assert result.product_name == "acme-fw-mgr"

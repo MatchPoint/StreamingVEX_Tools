@@ -5,6 +5,7 @@ Public client tools for [StreamingVEX](https://github.com/MatchPoint/StreamingVE
 | Tool | Purpose |
 |------|---------|
 | **VEX Pusher** (`streamingvex-push`) | Suppliers publish VEX to `POST /v1/supplier/push` |
+| **VEX Validate** (`streamingvex-validate`) | Check catalog readiness without pushing (no API key) |
 | **Webhook receiver example** | Subscribers verify HMAC, dedupe, and store `catalog.vex.updated` events |
 
 ## Install
@@ -21,6 +22,7 @@ pip install -e ".[dev,webhook]"
 Commands on your PATH:
 
 - `streamingvex-push` (alias `vex-pusher`)
+- `streamingvex-validate` (validate-only)
 - Example receiver: `python examples/webhook_receiver/receiver.py`
 
 ## Quick links
@@ -33,15 +35,16 @@ Commands on your PATH:
 
 ## VEX Pusher (suppliers)
 
-1. Get a StreamingVEX account and **verified email**.
-2. Request **supplier pusher** access; wait for platform admin approval.
-3. Register your supplier slug and obtain an API key (`svx_…`).
-4. Configure and push:
+1. Get a StreamingVEX account and **verified email** (`/ui/register`).
+2. Apply at **`/ui/supplier-pusher`** (supplier slug, company name, website); wait for admin approval and **email** notification.
+3. Register supplier and API key at **`/ui/supplier`** (`svx_…`).
+4. Validate, then push:
 
 ```bash
 cp examples/pusher.config.example.json pusher.config.json
 # Edit base_url, supplier_slug, api_key, signing_key_pem, product fields
 
+streamingvex-validate --config pusher.config.json --file path/to/vex.csaf.json
 streamingvex-push --config pusher.config.json --file path/to/vex.csaf.json --idem-key release-202602
 ```
 

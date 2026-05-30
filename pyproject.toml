@@ -38,6 +38,7 @@ dev = [
 
 [project.scripts]
 streamingvex-push = "streamingvex_tools.pusher.cli:main"
+streamingvex-validate = "streamingvex_tools.pusher.cli:validate_main"
 vex-pusher = "streamingvex_tools.pusher.cli:main"
 
 [project.urls]

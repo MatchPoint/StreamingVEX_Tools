@@ -18,19 +18,20 @@ pip install -e ".[dev,webhook]"
 
 ### Account and approval
 
-1. Register and verify email on the StreamingVEX web UI.
-2. `POST /suppliers/request-pusher-access` with your JWT.
-3. Platform admin approves at `/ui/admin/supplier-pushers`.
-4. `POST /suppliers/register` then `POST /suppliers/{id}/credentials` — save the `api_key`.
+1. Register and verify email on the StreamingVEX web UI (`/ui/register`).
+2. Apply at **`/ui/supplier-pusher`** — enter supplier slug, company name, and supplier website.
+3. Platform admin (`PLATFORM_ADMIN_EMAILS`) reviews at **`/ui/admin/supplier-pushers`** and approves or denies (you receive an email).
+4. Register supplier and API key at **`/ui/supplier`** (or REST: `POST /suppliers/register`, `POST /suppliers/{id}/credentials`) — save the `api_key`.
 
 Details: [vex-pusher.md](vex-pusher.md).
 
-### Push a document
+### Validate then push
 
 ```bash
 cp examples/pusher.config.example.json pusher.config.json
 # Set base_url, supplier_slug, api_key
 
+streamingvex-validate --config pusher.config.json --file my.csaf.json
 streamingvex-push --config pusher.config.json --file my.csaf.json --idem-key test-1
 ```
 
@@ -59,5 +60,5 @@ Details: [webhook-receiver.md](webhook-receiver.md).
 ## Next steps
 
 - Harden the receiver (HTTPS, auth, queue workers) using the patterns in `examples/webhook_receiver/verify.py`.
-- Automate push in CI with `streamingvex-push` and secrets for `api_key` and signing PEM.
+- Automate push in CI: run `streamingvex-validate` in an early job stage, then `streamingvex-push` with secrets for `api_key` and signing PEM.
 - Never commit `pusher.config.json`, API keys, or private keys to git.

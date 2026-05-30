@@ -31,3 +31,13 @@ def is_encrypted_payload(payload: dict[str, Any]) -> bool:
 
 def parse_encrypted_payload(payload: dict[str, Any]) -> EncryptedVexPayload:
     return EncryptedVexPayload.model_validate(payload)
+
+
+def resolve_content_encoding(
+    payload: dict[str, Any],
+    *,
+    declared: str | None = None,
+) -> ContentEncoding:
+    if declared == "encrypted" or is_encrypted_payload(payload):
+        return "encrypted"
+    return "json"

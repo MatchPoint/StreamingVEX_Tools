@@ -13,7 +13,13 @@ import httpx
 
 from streamingvex_tools.envelope import SupplierPushEnvelope
 from streamingvex_tools.pusher.config_loader import load_pusher_config
-from streamingvex_tools.pusher.validate import format_readiness_report, validate_vex_for_catalog
+from streamingvex_tools.pusher.encrypt import encrypt_vex_document
+from streamingvex_tools.pusher.validate import (
+    CatalogReadinessResult,
+    format_readiness_report,
+    validate_vex_for_catalog,
+)
+from streamingvex_tools.vex_encryption import is_encrypted_payload, resolve_content_encoding
 
 
 def _load_json(path: str | None) -> dict[str, Any]:
@@ -22,7 +28,12 @@ def _load_json(path: str | None) -> dict[str, Any]:
 
 
 def _load_config(path: str | None) -> dict[str, Any]:
-    return load_pusher_config(path) if path else {}
+    if not path:
+        return {}
+    try:
+        return load_pusher_config(path)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def build_envelope(
@@ -33,11 +44,10 @@ def build_envelope(
     product_version: str | None,
     product_purl: str | None,
     product_cpe: str | None,
+    software_vendor_name: str | None,
     signing_key_pem_path: str | None,
     content_encoding: str | None = None,
 ) -> SupplierPushEnvelope:
-    from streamingvex_tools.vex_encryption import is_encrypted_payload
-
     encoding = content_encoding
     if encoding is None and is_encrypted_payload(vex_document):
         encoding = "encrypted"
@@ -49,6 +59,7 @@ def build_envelope(
         product_version=product_version,
         product_purl=product_purl,
         product_cpe=product_cpe,
+        software_vendor_name=software_vendor_name,
     )
     if signing_key_pem_path:
         env.sign_ed25519_pem(Path(signing_key_pem_path).read_bytes())
@@ -69,24 +80,114 @@ def push_envelope(
         return client.post(url, json=envelope.model_dump(), headers=headers)
 
 
-def _envelope_product_fields(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, str | None]:
+def _envelope_product_fields(cfg: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     return {
         "envelope_product_name": cfg.get("product_name") or args.product_name,
         "envelope_product_version": cfg.get("product_version") or args.product_version,
         "envelope_purl": cfg.get("product_purl") or args.product_purl,
         "envelope_cpe": cfg.get("product_cpe") or args.product_cpe,
+        "envelope_software_vendor_name": cfg.get("software_vendor_name") or args.software_vendor_name,
         "content_encoding": cfg.get("content_encoding") or args.content_encoding,
+        "require_software_vendor_name": bool(
+            cfg.get("software_vendor_name") or args.software_vendor_name or args.encrypt
+        ),
     }
 
 
+def _merge_fields_from_cleartext_validation(
+    product_fields: dict[str, Any],
+    clear_result: CatalogReadinessResult,
+) -> dict[str, Any]:
+    merged = dict(product_fields)
+    if not merged.get("envelope_product_name") and clear_result.product_name:
+        merged["envelope_product_name"] = clear_result.product_name
+    if not merged.get("envelope_product_version") and clear_result.product_version:
+        merged["envelope_product_version"] = clear_result.product_version
+    if not merged.get("envelope_purl") and clear_result.product_purl:
+        merged["envelope_purl"] = clear_result.product_purl
+    if not merged.get("envelope_cpe") and clear_result.product_cpe:
+        merged["envelope_cpe"] = clear_result.product_cpe
+    if not merged.get("envelope_software_vendor_name") and clear_result.software_vendor_name:
+        merged["envelope_software_vendor_name"] = clear_result.software_vendor_name
+    merged["content_encoding"] = "encrypted"
+    merged["require_software_vendor_name"] = True
+    return merged
+
+
+def _prepare_vex_document(
+    vex_doc: dict[str, Any],
+    *,
+    args: argparse.Namespace,
+    cfg: dict[str, Any],
+    product_fields: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if args.encrypt:
+        if is_encrypted_payload(vex_doc):
+            raise SystemExit(
+                "--encrypt requires a cleartext VEX file. Remove --encrypt when pushing a pre-encrypted wrapper."
+            )
+        key_file = args.encryption_key_file or cfg.get("encryption_key_file")
+        key_id = args.encryption_key_id or cfg.get("encryption_key_id")
+        if not key_file or not key_id:
+            raise SystemExit(
+                "--encrypt requires --encryption-key-file and --encryption-key-id "
+                "(or encryption_key_file / encryption_key_id in pusher.config.json)"
+            )
+        clear_fields = dict(product_fields)
+        clear_fields["content_encoding"] = "json"
+        clear_fields["require_software_vendor_name"] = False
+        clear_result = validate_vex_for_catalog(vex_doc, **clear_fields)
+        if not clear_result.ok:
+            print(format_readiness_report(clear_result), file=sys.stderr)
+            raise SystemExit(1)
+        merged = _merge_fields_from_cleartext_validation(product_fields, clear_result)
+        encrypted_doc = encrypt_vex_document(
+            vex_doc,
+            key_path=key_file,
+            key_id=key_id,
+            plaintext_format=clear_result.format_name,
+        )
+        return encrypted_doc, merged
+
+    encoding = resolve_content_encoding(vex_doc, declared=product_fields.get("content_encoding"))
+    fields = dict(product_fields)
+    if encoding == "encrypted":
+        fields["content_encoding"] = "encrypted"
+        fields["require_software_vendor_name"] = True
+    return vex_doc, fields
+
+
 def _add_catalog_field_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", help="JSON config with optional product_name, product_version, product_purl, product_cpe")
+    parser.add_argument(
+        "--config",
+        help="JSON config with optional product_name, product_version, product_purl, product_cpe, software_vendor_name",
+    )
     parser.add_argument("--file", help="VEX JSON file (OpenVEX/CSAF); stdin if omitted")
     parser.add_argument("--product-name")
     parser.add_argument("--product-version")
     parser.add_argument("--product-purl")
     parser.add_argument("--product-cpe")
+    parser.add_argument(
+        "--software-vendor-name",
+        help="Product supplier / software vendor (required on envelope for encrypted VEX)",
+    )
     parser.add_argument("--content-encoding", choices=("json", "encrypted"))
+
+
+def _add_encrypt_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--encrypt",
+        action="store_true",
+        help="Validate cleartext --file, extract catalog metadata, encrypt with AES-256-GCM, then push",
+    )
+    parser.add_argument(
+        "--encryption-key-file",
+        help="Path to 32-byte AES key (raw or base64 text) used when --encrypt is set",
+    )
+    parser.add_argument(
+        "--encryption-key-id",
+        help="Subscriber key id (matches key material you distribute out-of-band)",
+    )
 
 
 def _add_validate_output_args(parser: argparse.ArgumentParser) -> None:
@@ -101,7 +202,18 @@ def _add_validate_output_args(parser: argparse.ArgumentParser) -> None:
 def run_validate(args: argparse.Namespace) -> int:
     cfg = _load_config(args.config)
     vex_doc = _load_json(args.file)
-    result = validate_vex_for_catalog(vex_doc, **_envelope_product_fields(cfg, args))
+    product_fields = _envelope_product_fields(cfg, args)
+    try:
+        vex_doc, product_fields = _prepare_vex_document(
+            vex_doc,
+            args=args,
+            cfg=cfg,
+            product_fields=product_fields,
+        )
+    except SystemExit as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    result = validate_vex_for_catalog(vex_doc, **product_fields)
     if args.validate_json:
         print(json.dumps(result.to_dict(), indent=2))
     else:
@@ -111,26 +223,15 @@ def run_validate(args: argparse.Namespace) -> int:
 
 def _require_catalog_readiness(
     vex_doc: dict[str, Any],
-    *,
-    envelope_product_name: str | None,
-    envelope_product_version: str | None,
-    envelope_purl: str | None,
-    envelope_cpe: str | None,
-    content_encoding: str | None,
-) -> None:
-    result = validate_vex_for_catalog(
-        vex_doc,
-        envelope_product_name=envelope_product_name,
-        envelope_product_version=envelope_product_version,
-        envelope_purl=envelope_purl,
-        envelope_cpe=envelope_cpe,
-        content_encoding=content_encoding,
-    )
+    product_fields: dict[str, Any],
+) -> CatalogReadinessResult:
+    result = validate_vex_for_catalog(vex_doc, **product_fields)
     if not result.ok:
         print(format_readiness_report(result), file=sys.stderr)
         raise SystemExit(1)
     if result.warnings:
         print(format_readiness_report(result), file=sys.stderr)
+    return result
 
 
 def run_push(args: argparse.Namespace) -> int:
@@ -145,17 +246,24 @@ def run_push(args: argparse.Namespace) -> int:
     if not supplier_slug or not api_key:
         raise SystemExit("requires --supplier-slug and --api-key (or --config)")
 
-    _require_catalog_readiness(vex_doc, **product_fields)
+    vex_doc, product_fields = _prepare_vex_document(
+        vex_doc,
+        args=args,
+        cfg=cfg,
+        product_fields=product_fields,
+    )
+    readiness = _require_catalog_readiness(vex_doc, product_fields)
 
     envelope = build_envelope(
         supplier_slug=supplier_slug,
         vex_document=vex_doc,
-        product_name=product_fields["envelope_product_name"],
-        product_version=product_fields["envelope_product_version"],
-        product_purl=product_fields["envelope_purl"],
-        product_cpe=product_fields["envelope_cpe"],
+        product_name=product_fields.get("envelope_product_name") or readiness.product_name,
+        product_version=product_fields.get("envelope_product_version") or readiness.product_version,
+        product_purl=product_fields.get("envelope_purl") or readiness.product_purl,
+        product_cpe=product_fields.get("envelope_cpe") or readiness.product_cpe,
+        software_vendor_name=product_fields.get("envelope_software_vendor_name") or readiness.software_vendor_name,
         signing_key_pem_path=signing_pem,
-        content_encoding=product_fields["content_encoding"],
+        content_encoding=product_fields.get("content_encoding"),
     )
     resp = push_envelope(base_url, api_key, envelope, args.idem_key)
     print(resp.status_code)
@@ -169,6 +277,7 @@ def _build_validate_parser(prog: str) -> argparse.ArgumentParser:
         description="Validate VEX catalog readiness without pushing to StreamingVEX",
     )
     _add_catalog_field_args(parser)
+    _add_encrypt_args(parser)
     _add_validate_output_args(parser)
     return parser
 
@@ -179,6 +288,7 @@ def _build_push_parser(prog: str) -> argparse.ArgumentParser:
         description="StreamingVEX VEX Pusher — upload supplier-authenticated VEX envelopes",
     )
     _add_catalog_field_args(parser)
+    _add_encrypt_args(parser)
     parser.add_argument("--base-url", default="https://streamingvex.example.com")
     parser.add_argument("--supplier-slug", help="Registered supplier slug")
     parser.add_argument("--api-key", help="Supplier API key from StreamingVEX")

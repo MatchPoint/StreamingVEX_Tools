@@ -26,6 +26,8 @@ class CatalogReadinessResult:
     product_version_source: str | None = None
     product_purl_source: str | None = None
     product_cpe_source: str | None = None
+    software_vendor_name: str | None = None
+    software_vendor_name_source: str | None = None
     extracted: VexProductMetadata | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -39,10 +41,12 @@ class CatalogReadinessResult:
             "product_version": self.product_version,
             "product_purl": self.product_purl,
             "product_cpe": self.product_cpe,
+            "software_vendor_name": self.software_vendor_name,
             "product_name_source": self.product_name_source,
             "product_version_source": self.product_version_source,
             "product_purl_source": self.product_purl_source,
             "product_cpe_source": self.product_cpe_source,
+            "software_vendor_name_source": self.software_vendor_name_source,
         }
 
 
@@ -89,8 +93,10 @@ def validate_vex_for_catalog(
     envelope_product_version: str | None = None,
     envelope_purl: str | None = None,
     envelope_cpe: str | None = None,
+    envelope_software_vendor_name: str | None = None,
     content_encoding: str | None = None,
     supplier_display_name: str | None = None,
+    require_software_vendor_name: bool = False,
 ) -> CatalogReadinessResult:
     errors: list[str] = []
     warnings: list[str] = []
@@ -115,6 +121,11 @@ def validate_vex_for_catalog(
         if not envelope_product_version:
             errors.append(
                 "product_version required in config/envelope for encrypted VEX "
+                "(StreamingVEX cannot parse ciphertext server-side)"
+            )
+        if require_software_vendor_name and not envelope_software_vendor_name:
+            errors.append(
+                "software_vendor_name required in config/envelope for encrypted VEX "
                 "(StreamingVEX cannot parse ciphertext server-side)"
             )
     else:
@@ -164,6 +175,10 @@ def validate_vex_for_catalog(
         envelope_cpe,
         meta.product_cpe if meta else None,
     )
+    software_vendor_name, software_vendor_name_source = _pick(
+        envelope_software_vendor_name,
+        meta.software_vendor if meta else None,
+    )
 
     if encoding == "json" and not product_purl and not product_cpe:
         warnings.append(
@@ -201,12 +216,35 @@ def validate_vex_for_catalog(
         product_version=product_version,
         product_purl=product_purl,
         product_cpe=product_cpe,
+        software_vendor_name=software_vendor_name,
         product_name_source=product_name_source,
         product_version_source=product_version_source,
         product_purl_source=product_purl_source,
         product_cpe_source=product_cpe_source,
+        software_vendor_name_source=software_vendor_name_source,
         extracted=meta,
     )
+
+
+def encrypted_metadata_cli_help(*, include_encrypt_workflow: bool = True) -> str:
+    lines = [
+        "",
+        "Encrypted VEX requires catalog metadata on the push envelope (config or CLI flags):",
+        "  --product-name \"My Product\"",
+        "  --product-version \"1.0.0\"",
+        "  --software-vendor-name \"My Vendor\"",
+        "  --product-cpe \"cpe:2.3:a:vendor:product:1.0.0:*:*:*:*:*:*:*\"   (optional)",
+        "  --product-purl \"pkg:generic/my-product@1.0.0\"                     (optional)",
+    ]
+    if include_encrypt_workflow:
+        lines.extend(
+            [
+                "",
+                "Or push cleartext and let the pusher validate, extract metadata, and encrypt:",
+                "  --encrypt --encryption-key-file ./vex-aes256.key --encryption-key-id release-202411",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def format_readiness_report(result: CatalogReadinessResult) -> str:
@@ -224,6 +262,8 @@ def format_readiness_report(result: CatalogReadinessResult) -> str:
 
     _field("product_name", result.product_name, result.product_name_source)
     _field("product_version", result.product_version, result.product_version_source)
+    if result.software_vendor_name or result.content_encoding == "encrypted":
+        _field("software_vendor_name", result.software_vendor_name, result.software_vendor_name_source)
     if result.product_purl:
         _field("product_purl", result.product_purl, result.product_purl_source)
     if result.product_cpe:
@@ -237,4 +277,6 @@ def format_readiness_report(result: CatalogReadinessResult) -> str:
         lines.append("")
         lines.append("Errors:")
         lines.extend(f"  - {item}" for item in result.errors)
+        if result.content_encoding == "encrypted":
+            lines.append(encrypted_metadata_cli_help())
     return "\n".join(lines)

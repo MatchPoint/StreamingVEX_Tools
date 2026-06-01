@@ -27,6 +27,7 @@ class SupplierPushEnvelope(BaseModel):
     product_version: str | None = None
     product_purl: str | None = None
     product_cpe: str | None = None
+    software_vendor_name: str | None = None
     pushed_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     signature: str | None = None
 

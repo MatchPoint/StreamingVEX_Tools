@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "streamingvex-tools"
-version = "0.1.0"
-description = "Public client tools for StreamingVEX — supplier VEX pusher CLI and webhook receiver example."
+version = "0.2.0"
+description = "Public client tools for StreamingVEX — supplier VEX pusher CLI, pull subscriber CLI, and webhook receiver example."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

@@ -42,5 +42,14 @@ def strip_json_line_comments(text: str) -> str:
 
 
 def load_pusher_config(path: str | Path) -> dict[str, Any]:
-    raw = Path(path).read_text(encoding="utf-8")
-    return json.loads(strip_json_line_comments(raw))
+    config_path = Path(path)
+    raw = config_path.read_text(encoding="utf-8")
+    stripped = strip_json_line_comments(raw)
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Invalid pusher.config.json ({config_path}) at line {exc.lineno}, column {exc.colno}: {exc.msg}. "
+            "If you uncommented an optional field, add a comma after the previous property "
+            "(see the example comment above the OPTIONAL block)."
+        ) from exc

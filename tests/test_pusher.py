@@ -39,6 +39,7 @@ def test_build_envelope_with_signing(signing_key_pem: Path) -> None:
         product_version="1.0",
         product_purl=None,
         product_cpe=None,
+        software_vendor_name=None,
         signing_key_pem_path=str(signing_key_pem),
     )
     assert env.signature is not None
@@ -69,8 +70,9 @@ def test_example_config_loads_with_comments() -> None:
     cfg = load_pusher_config(path)
     assert "base_url" in cfg
     assert "supplier_slug" in cfg
-    assert "product_purl" not in cfg
-    assert "product_cpe" not in cfg
+    assert "api_key" in cfg
+    assert "product_name" not in cfg
+    assert "product_version" not in cfg
 
 
 def test_load_config_strips_line_comments(tmp_path: Path) -> None:
@@ -90,6 +92,25 @@ def test_load_config_strips_line_comments(tmp_path: Path) -> None:
     )
     cfg = load_pusher_config(path)
     assert cfg["base_url"] == "http://127.0.0.1:8000"
+
+
+def test_load_config_reports_missing_comma(tmp_path: Path) -> None:
+    from streamingvex_tools.pusher.config_loader import load_pusher_config
+
+    path = tmp_path / "pusher.config.json"
+    path.write_text(
+        """{
+  "base_url": "http://127.0.0.1:8000",
+  "supplier_slug": "test",
+  "api_key": "svx_x",
+  "product_name": "p",
+  "product_version": "1.0.0"
+  "product_cpe": "cpe:2.3:a:vendor:product:1.0.0:*:*:*:*:*:*:*"
+}""",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="add a comma"):
+        load_pusher_config(path)
 
 
 def test_cli_help_subprocess() -> None:

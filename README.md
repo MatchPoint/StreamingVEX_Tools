@@ -4,6 +4,7 @@ Public client tools for [StreamingVEX](https://github.com/MatchPoint/StreamingVE
 
 | Tool | Purpose |
 |------|---------|
+| **VEX Pull** (`streamingvex-pull`) | Subscribers pull subscribed VEX outbound (firewall-friendly) |
 | **VEX Pusher** (`streamingvex-push`) | Suppliers publish VEX to `POST /v1/supplier/push` |
 | **VEX Validate** (`streamingvex-validate`) | Check catalog readiness without pushing (no API key) |
 | **Webhook receiver example** | Subscribers verify HMAC, dedupe, and store `catalog.vex.updated` events |
@@ -36,19 +37,21 @@ Commands on your PATH:
 ## VEX Pusher (suppliers)
 
 1. Get a StreamingVEX account and **verified email** (`/ui/register`).
-2. Apply at **`/ui/supplier-pusher`** (supplier slug, company name, website); wait for admin approval and **email** notification.
+2. Apply at **`/ui/supplier-pusher`** (supplier slug, company name, website); wait for admin approval.
 3. Register supplier and API key at **`/ui/supplier`** (`svx_…`).
 4. Validate, then push:
 
 ```bash
 cp examples/pusher.config.example.json pusher.config.json
-# Edit base_url, supplier_slug, api_key, signing_key_pem, product fields
+# Edit base_url, supplier_slug, api_key (product fields optional when VEX embeds metadata)
 
-streamingvex-validate --config pusher.config.json --file path/to/vex.csaf.json
+streamingvex-validate --file path/to/vex.csaf.json
 streamingvex-push --config pusher.config.json --file path/to/vex.csaf.json --idem-key release-202602
 ```
 
-See [docs/vex-pusher.md](docs/vex-pusher.md) for signing keys, encrypted VEX, and troubleshooting.
+**Canonical reference:** [docs/vex-pusher.md](docs/vex-pusher.md) — config fields, catalog readiness, plaintext vs encrypted (`--encrypt`), troubleshooting.
+
+See [docs/getting-started.md](docs/getting-started.md) for a full local E2E with webhooks.
 
 ## Webhook receiver (subscribers)
 

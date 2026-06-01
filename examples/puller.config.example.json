@@ -1,0 +1,9 @@
+{
+  "base_url": "http://127.0.0.1:8000",
+  "api_key": "svx_u_REPLACE_WITH_YOUR_KEY",
+  "output_dir": "./received_vex",
+  "state_file": ".streamingvex-pull-state.json",
+  // "proxy": "http://proxy.corp.example:8080",
+  // "force_sync": true,
+  // "poll_interval_minutes": 60
+}

@@ -341,6 +341,22 @@ Wrapper schema in `vex_document`:
 
 Subscribers decrypt locally using the key matching `key_id`. StreamingVEX stores and forwards ciphertext only.
 
+### Encrypted push — OpenPGP multi-recipient (`--encrypt-openpgp`)
+
+When subscribers register PGP public keys on StreamingVEX and the supplier approves access, the CLI fetches recipient keys from `GET /v1/supplier/me/encryption-recipients` and encrypts to each approved key (armored message in `ciphertext`, `algorithm: OpenPGP`). Your PGP private key file is used only to unlock the local keyring — it is **not** uploaded.
+
+```bash
+streamingvex-push \
+  --config pusher.config.json \
+  --file ./edk2-stable202411.csaf.json \
+  --encrypt-openpgp \
+  --pgp-private-key-file ./supplier-key.asc \
+  --encryption-key-id edk2-stable202411 \
+  --idem-key edk2-stable202411-openpgp
+```
+
+Requires `base_url`, `api_key`, and approved recipients on the server. See [StreamingVEX push sources — Recipient PKI](https://github.com/MatchPoint/StreamingVEX/blob/main/docs/user/push-sources.md#recipient-pki-openpgp-embargo).
+
 ---
 
 ## CLI flags (complete)
@@ -359,6 +375,10 @@ Subscribers decrypt locally using the key matching `key_id`. StreamingVEX stores
 | `--encrypt` | ✓ | ✓ | Encrypt cleartext `--file` before push |
 | `--encryption-key-file` | ✓ | ✓ | AES-256 key file (32 bytes raw or base64) |
 | `--encryption-key-id` | ✓ | ✓ | Subscriber key identifier |
+| `--encrypt-openpgp` | — | ✓ | OpenPGP encrypt to broker-approved recipient keys |
+| `--pgp-private-key-file` | — | ✓ | Armored PGP secret key (unlock only) |
+| `--pgp-passphrase-file` | — | ✓ | Passphrase for protected PGP key |
+| `--encryption-recipients-scope` | — | ✓ | Optional filter when listing recipients |
 | `--base-url` | — | ✓ | Override server URL |
 | `--supplier-slug` | — | ✓ | Override slug |
 | `--api-key` | — | ✓ | Override API key |
@@ -459,7 +479,7 @@ Body: `SupplierPushEnvelope` JSON (see `streamingvex_tools/envelope.py`). Server
 ## Tests
 
 ```bash
-pytest tests/test_validate.py tests/test_encrypt.py tests/test_pusher.py -v
+pytest tests/test_validate.py tests/test_encrypt.py tests/test_encrypt_openpgp.py tests/test_pusher.py -v
 ```
 
 Covers catalog readiness, encryption round-trip, config loading, CLI subprocess behavior, and envelope signing.

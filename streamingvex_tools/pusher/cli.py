@@ -14,6 +14,11 @@ import httpx
 from streamingvex_tools.envelope import SupplierPushEnvelope
 from streamingvex_tools.pusher.config_loader import load_pusher_config
 from streamingvex_tools.pusher.encrypt import encrypt_vex_document
+from streamingvex_tools.pusher.encrypt_openpgp import (
+    encrypt_vex_document_openpgp,
+    load_passphrase,
+)
+from streamingvex_tools.pusher.recipients import fetch_encryption_recipients
 from streamingvex_tools.pusher.validate import (
     CatalogReadinessResult,
     format_readiness_report,
@@ -89,7 +94,10 @@ def _envelope_product_fields(cfg: dict[str, Any], args: argparse.Namespace) -> d
         "envelope_software_vendor_name": cfg.get("software_vendor_name") or args.software_vendor_name,
         "content_encoding": cfg.get("content_encoding") or args.content_encoding,
         "require_software_vendor_name": bool(
-            cfg.get("software_vendor_name") or args.software_vendor_name or args.encrypt
+            cfg.get("software_vendor_name")
+            or args.software_vendor_name
+            or args.encrypt
+            or getattr(args, "encrypt_openpgp", False)
         ),
     }
 
@@ -121,6 +129,48 @@ def _prepare_vex_document(
     cfg: dict[str, Any],
     product_fields: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    if getattr(args, "encrypt_openpgp", False):
+        if is_encrypted_payload(vex_doc):
+            raise SystemExit(
+                "--encrypt-openpgp requires a cleartext VEX file. "
+                "Remove the flag when pushing a pre-encrypted wrapper."
+            )
+        base_url = cfg.get("base_url") or args.base_url
+        api_key = cfg.get("api_key") or args.api_key
+        if not base_url or not api_key:
+            raise SystemExit("--encrypt-openpgp requires base_url and api_key in config")
+        priv_path = args.pgp_private_key_file or cfg.get("pgp_private_key_file")
+        key_id = args.encryption_key_id or cfg.get("encryption_key_id")
+        if not priv_path or not key_id:
+            raise SystemExit(
+                "--encrypt-openpgp requires --pgp-private-key-file and --encryption-key-id "
+                "(or pgp_private_key_file / encryption_key_id in config)"
+            )
+        clear_fields = dict(product_fields)
+        clear_fields["content_encoding"] = "json"
+        clear_fields["require_software_vendor_name"] = False
+        clear_result = validate_vex_for_catalog(vex_doc, **clear_fields)
+        if not clear_result.ok:
+            print(format_readiness_report(clear_result), file=sys.stderr)
+            raise SystemExit(1)
+        merged = _merge_fields_from_cleartext_validation(product_fields, clear_result)
+        scope = args.encryption_recipients_scope or cfg.get("encryption_recipients_scope")
+        recipients = fetch_encryption_recipients(
+            base_url=base_url,
+            api_key=api_key,
+            scope=scope,
+        )
+        passphrase = load_passphrase(args.pgp_passphrase_file or cfg.get("pgp_passphrase_file"))
+        encrypted_doc = encrypt_vex_document_openpgp(
+            vex_doc,
+            private_key_path=priv_path,
+            passphrase=passphrase,
+            recipients=recipients,
+            key_id=key_id,
+            plaintext_format=clear_result.format_name,
+        )
+        return encrypted_doc, merged
+
     if args.encrypt:
         if is_encrypted_payload(vex_doc):
             raise SystemExit(
@@ -178,7 +228,12 @@ def _add_encrypt_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--encrypt",
         action="store_true",
-        help="Validate cleartext --file, extract catalog metadata, encrypt with AES-256-GCM, then push",
+        help="Validate cleartext --file, extract catalog metadata, encrypt with AES-256-GCM (SEVT v1), then push",
+    )
+    parser.add_argument(
+        "--encrypt-openpgp",
+        action="store_true",
+        help="Fetch approved recipient keys from server, OpenPGP-encrypt locally, then push",
     )
     parser.add_argument(
         "--encryption-key-file",
@@ -186,7 +241,19 @@ def _add_encrypt_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--encryption-key-id",
-        help="Subscriber key id (matches key material you distribute out-of-band)",
+        help="Release label (OpenPGP) or subscriber key id (AES-256-GCM)",
+    )
+    parser.add_argument(
+        "--pgp-private-key-file",
+        help="Path to supplier PGP private key (armored); never uploaded to server",
+    )
+    parser.add_argument(
+        "--pgp-passphrase-file",
+        help="Optional file containing passphrase for protected private key",
+    )
+    parser.add_argument(
+        "--encryption-recipients-scope",
+        help="Optional scope query for GET /v1/supplier/me/encryption-recipients",
     )
 
 

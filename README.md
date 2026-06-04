@@ -30,7 +30,8 @@ Commands on your PATH:
 
 | Guide | Audience |
 |-------|----------|
-| [docs/vex-pusher.md](docs/vex-pusher.md) | Suppliers pushing VEX |
+| [docs/vex-pusher.md](docs/vex-pusher.md) | Suppliers pushing VEX (incl. `--encrypt-openpgp`) |
+| [StreamingVEX encrypted-vex.md](https://github.com/MatchPoint/StreamingVEX/blob/main/docs/user/encrypted-vex.md) | SEVT, OpenPGP PKI, VEXpert (server repo) |
 | [docs/webhook-receiver.md](docs/webhook-receiver.md) | Subscribers receiving webhooks |
 | [docs/getting-started.md](docs/getting-started.md) | End-to-end local test |
 
